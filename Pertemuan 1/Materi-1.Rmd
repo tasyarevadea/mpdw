@@ -441,13 +441,13 @@ autoplot(ses.1) +
 
 Selanjutnya akan digunakan fungsi `HoltWinters()` dengan nilai inisialisasi parameter dan panjang periode peramalan yang sama dengan fungsi `ses()` .
 
-```{r}
+```{r} 
 #Cara 2 (fungsi Holtwinter)
 ses1<- HoltWinters(train.ts, gamma = FALSE, beta = FALSE, alpha = 0.2)
 plot(ses1)
 
 #ramalan
-ramalan1<- forecast(ses1, h=10)
+ramalan1 <- forecast(ses1, h=10)
 ramalan1
 
 ses2<- HoltWinters(train.ts, gamma = FALSE, beta = FALSE, alpha = 0.7)
