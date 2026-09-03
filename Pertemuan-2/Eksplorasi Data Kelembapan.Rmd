@@ -1,0 +1,85 @@
+---
+title: "Eksplorasi Data Kelembapan"
+output:
+  html_document: 
+    theme: lumen
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: hide
+  pdf_document: default
+  word_document: default
+---
+
+## Library/Packages
+
+```{r}
+library(forecast)
+library(readxl)
+library(ggplot2)
+```
+
+## Impor Data
+
+```{r}
+dt <- read_excel("C:/Users/User/Downloads/data kelembapan (per jam).xlsx", sheet = 2)
+
+# menampilkan 5 data pertama
+head(dt)
+```
+
+## Eksplorasi Data
+
+```{r}
+str(dt)
+dim(dt)
+```
+
+Mengubah data agar terbaca sebagai data deret waktu dengan fungsi `ts()`.
+
+```{r}
+# Mendefinisikan time series dengan frekuensi 24 (jam dalam sehari)
+dt.ts <- ts(dt$Humidity, frequency = 24)
+```
+
+```{r}
+summary(dt.ts)
+```
+
+```{r}
+# Membuat plot time series dengan ggplot2
+autoplot(dt.ts) +
+  geom_point(color = "forestgreen", size = 1) + 
+  labs(title = "Eksplorasi Deret Waktu Kelembapan Udara (Hourly)",
+       x = "Waktu (Hari)",
+       y = "Tingkat Kelembapan") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r}
+# Membuat boxplot untuk melihat distribusi data pada setiap jam (1-24)
+boxplot(dt.ts ~ cycle(dt.ts),
+        xlab = "Jam dalam Sehari",
+        ylab = "Kelembapan",
+        main = "Distribusi Kelembapan Udara Berdasarkan Jam",
+        border = "black")
+```
+
+```{r}
+ts.plot(dt.ts, xlab="Time Period ", ylab="Humidity", 
+        main = "Time Series Plot")
+points(dt.ts)
+```
+
+Berdasarkan hasil eksplorasi, data kelembapan udara per jam menunjukkan pola yang berfluktuasi namun teratur. Tidak terlihat adanya pergerakan trend jangka panjang, ditandai dengan tingkat kelembapan yang secara umum bergerak mendatar atau stasioner pada rata-ratanya. Selain itu, hasil eksplorasi berdasarkan waktu harian menunjukkan adanya indikasi pola musiman (seasonality) yang sangat kuat, yaitu tingkat kelembapan cenderung meningkat mencapai puncaknya pada malam menuju dini hari, kemudian menurun drastis pada siang hingga sore hari. Dengan ketiadaan trend namun memiliki indikasi seasonality yang jelas tersebut, data ini sesuai untuk dianalisis menggunakan beberapa metode peramalan, khususnya SARIMA atau metode pemulusan Holt-Winters yang dapat menangkap komponen musiman. Selanjutnya, kinerja masing-masing metode akan dibandingkan menggunakan metrik akurasi untuk menentukan metode yang paling sesuai.
+
+```{r}
+# Melakukan dekomposisi adtf
+dekomposisi <- decompose(dt.ts, type = "additive")
+
+# Menampilkan plot dekomposisi
+plot(dekomposisi)
+```
+
+Pada panel trend, pergerakan data menunjukkan adanya fluktuasi bergelombang dengan rentang nilai sekitar 55 hingga 80. Meskipun berfluktuasi secara dinamis antar-hari, garis tren ini tidak membentuk pergerakan naik atau turun yang monoton secara jangka panjang, sehingga secara keseluruhan data masih dapat dianggap relatif stasioner mendatar. Panel seasonal membuktikan dan mengonfirmasi keberadaan pola musiman harian yang sangat kuat, stabil, dan berulang secara konsisten pada setiap siklus 24 jam. Sementara itu, panel random menunjukkan bahwa sisaan umumnya berfluktuasi di sekitar nilai nol, walau terdapat beberapa lonjakan (seperti pada sekitar hari ke-5 dan ke-9) yang merepresentasikan variasi acak atau anomali cuaca sesaat yang tidak dapat dijelaskan oleh pola tren maupun musiman. 
