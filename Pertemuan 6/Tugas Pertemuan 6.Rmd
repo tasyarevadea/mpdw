@@ -1,1 +1,331 @@
+---
+title: "Tugas Pertemuan 6"
+author: "Tasya Revadea"
+date: "2026-09-24"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
 
+## Packages
+
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(forecast)
+library(TSA)
+library(TTR)
+library(aTSA)
+library(graphics)
+library(lmtest)
+library(car)
+library(readxl)
+```
+
+## Impor Data
+
+Data berisi kelembapan udara (%) yang diukur setiap jam. Variabel Period adalah urutan waktu dan Humidity adalah nilai kelembapan.
+
+```{r}
+df <- read_excel("data kelembapan (per jam).xlsx")
+str(df)
+```
+
+```{r}
+n <- nrow(df)
+df.ts <- ts(df$Humidity)
+```
+
+```{r}
+ntrain <- floor(0.8 * n)         
+train  <- df$Humidity[1:ntrain]
+test   <- df$Humidity[(ntrain + 1):n]
+df.train <- ts(train)
+df.test  <- ts(test, start = ntrain + 1)
+c(n_latih = length(train), n_uji = length(test))
+```
+
+## Plot Data
+
+Sebelum masuk dalam tahap pemodelan, dilakukan eksplorasi data dengan
+plot deret waktu untuk melihat pola data.
+
+```{r}
+#--PLOT TIME SERIES--#
+plot(df.train, lty = 1, col = "navyblue", xlab = "Waktu", ylab = "Kelembapan (%)", main = "Plot Kelembapan Data Latih")
+```
+
+Data latih bergerak di sekitar nilai tengah tertentu tanpa tren yang jelas, dan lebar pita fluktuasinya relatif konstan. Secara visual data cenderung stasioner dalam rataan dan ragam.
+
+```{r}
+plot.ts(df.test, lty = 1, col = "darkred", xlab = "Waktu", ylab = "Kelembapan (%)", main = "Plot Kelembapan Data Uji")
+```
+
+## Uji Stasioneritas
+
+### Plot ACF
+
+```{r}
+acf(df.train, main = "ACF Data Latih", lag.max = 48)
+```
+
+Plot ACF turun secara perlahan (tails off slowly) dan berbentuk gelombang yang berulang sekitar setiap 24 lag (korelasi positif kuat di lag 24, negatif di sekitar lag 12). Ini adalah ciri data jam-an dengan pola harian. Penurunan yang lambat sering menjadi tanda ketidakstasioneran dalam rataan, tetapi pada data ini perlu dikonfirmasi dengan uji formal.
+
+## Uji ADF
+
+```{r}
+tseries::adf.test(df.train) 
+```
+
+$H_0$ : Data tidak stasioner dalam rataan
+
+$H_1$ : Data stasioner dalam rataan
+
+Berdasarkan uji ADF tersebut, didapat *p-value* sebesar 0.01 yang lebih kecil dari taraf nyata 5% sehingga tolak $H_0$ dan menandakan bahwa data stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF.
+
+```{r}
+index <- seq(1:length(df.train))
+bc <- boxcox(df.train ~ index, lambda = seq(0, 3, by = 0.1))
+```
+
+```{r}
+lambda_opt <- bc$x[which.max(bc$y)]
+lambda_opt
+
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, df = 1)]
+c(Batas_Bawah = min(ci_lambda), Batas_Atas = max(ci_lambda))
+```
+
+Nilai $\lambda$ optimum adalah 1.030303, dengan selang kepercayaan 95% dari 0.6060606 sampai 1.4545455. Selang tersebut memuat nilai 1 sehingga tidak diperlukan transformasi, atau data sudah stasioner dalam ragam.
+
+## Identifikasi Model
+
+Karena data sudah stasioner, orde pembeda \(d = 0\) sehingga model yang dicari adalah ARMA(p, q) atau ARIMA(p, 0, q).
+
+### Plot ACF dan PACF
+
+```{r}
+par(mfrow = c(1, 2))
+acf(df.train,  main = "ACF",  lag.max = 24)
+pacf(df.train, main = "PACF", lag.max = 24)
+```
+
+ACF turun perlahan (tails off) sedangkan PACF terpotong (cuts off) setelah beberapa lag awal (lag 1 sangat besar, lag 2 dan 3 masih signifikan). Pola ini mengarah ke model AR, dengan kandidat ARIMA(1,0,0), ARIMA(2,0,0), dan ARIMA(3,0,0).
+
+### Plot EACF
+
+```{r}
+eacf(df.train)
+```
+
+Dari pola ini dipertimbangkan ARIMA(3,0,0), ARIMA(2,0,1), ARIMA(1,0,1), dan ARIMA(2,0,2) sebagai kandidat tambahan. Jadi terdapat 6 model tentatif: ARIMA(1,0,0), (2,0,0), (3,0,0), (1,0,1), (2,0,1), dan (2,0,2).
+
+## Pendugaan Parameter
+
+Selanjutnya akan dilakukan pendugaan parameter kelima model ARIMA yang
+terbentuk sebelumnya. Pendugaan dilakukan dengan fungsi `Arima()` yang
+dilanjutkan dengan melihat nilai AIC pada ringkasan data dan melihat
+signifikansi parameter.
+
+```{r}
+m100 <- Arima(df.train, order = c(1,0,0), method = "ML")
+m200 <- Arima(df.train, order = c(2,0,0), method = "ML")
+m300 <- Arima(df.train, order = c(3,0,0), method = "ML")
+m101 <- Arima(df.train, order = c(1,0,1), method = "ML")
+m201 <- Arima(df.train, order = c(2,0,1), method = "ML")
+m202 <- Arima(df.train, order = c(2,0,2), method = "ML")
+
+summary(m100); coeftest(m100)
+summary(m200); coeftest(m200)
+summary(m300); coeftest(m300)   # ar2 tidak signifikan
+summary(m101); coeftest(m101)
+summary(m201); coeftest(m201)
+summary(m202); coeftest(m202)   # galat baku NaN pada sebagian parameter
+```
+
+```{r}
+hasil_model <- data.frame(
+  Model = c("ARIMA(1,0,0)",
+            "ARIMA(2,0,0)",
+            "ARIMA(3,0,3)",
+            "ARIMA(1,0,1)",
+            "ARIMA(2,0,1)",
+            "ARIMA(2,0,2)"),
+  AIC = c(
+    AIC(m100),
+    AIC(m200),
+    AIC(m300),
+    AIC(m101),
+    AIC(m201),
+    AIC(m202)
+  ),
+  BIC = c(
+    BIC(m100),
+    BIC(m200),
+    BIC(m300),
+    BIC(m101),
+    BIC(m201),
+    BIC(m202)
+  )
+)
+
+hasil_model
+```
+
+Model ARIMA(2,0,1) memiliki AIC (2618.63) dan BIC terkecil dan seluruh parameternya signifikan pada taraf nyata 5%. Model ARIMA(3,0,0) AIC-nya lebih besar dan parameter ar2 tidak signifikan, sedangkan ARIMA(2,0,2) menghasilkan galat baku NaN (tanda model berlebih/tidak stabil). Maka model terpilih adalah ARIMA(2,0,1).
+
+## Analisis Sisaan
+
+Model terbaik hasil identifikasi kemudian dicek asumsi sisaannya. Sisaan
+model ARIMA harus memenuhi asumsi normalitas, kebebasan, dan kehomogenan
+ragam. Diagnostik model dilakukan secara eksplorasi dan uji formal.
+
+### Eksplorasi Sisaan
+
+```{r}
+#Eksplorasi
+sisaan <- m201$residuals
+par(mfrow=c(2,2))
+car::qqPlot(sisaan, main = "Normal Q-Q Plot", ylab = "Sisaan")
+
+plot(sisaan, type = "p", main = "Sisaan vs Waktu", xlab = "Waktu", ylab = "Sisaan")
+abline(h = 0, col = "red")
+acf(sisaan,  main = "ACF Sisaan",  lag.max = 48)
+pacf(sisaan, main = "PACF Sisaan", lag.max = 48)
+```
+
+Pada plot Q-Q, sebagian besar titik mengikuti garis, tetapi ujung-ujungnya menyimpang sehingga normalitas diragukan. Plot sisaan terhadap waktu menunjukkan lebar pita yang kurang seragam (ada periode sisaan lebih besar), yang mengindikasikan ragam tidak homogen. Pada ACF/PACF sisaan, lag-lag awal tidak signifikan, tetapi muncul spike kecil di sekitar lag 18 dan lag 23 yang menandakan masih ada sisa autokorelasi pada lag yang lebih jauh (kemungkinan terkait pola harian). Kondisi ini diuji lebih lanjut secara formal.
+
+## Uji Formal
+
+### Kenormalan Sisaan
+
+$H_0$ : Sisaan menyebar normal
+$H_1$ : Sisaan tidak menyebar normal
+
+```{r}
+ks_res <- ks.test(sisaan, "pnorm", mean(sisaan), sd(sisaan))
+ks_res
+```
+
+```{r}
+shapiro.test(sisaan)
+```
+
+Pada uji Kolmogorov-Smirnov, sisaan harus dibandingkan dengan sebaran normal dengan rataan dan simpangan baku sisaan sendiri (menggunakan pnorm standar tanpa parameter akan keliru karena sisaan tidak berskala standar). Didapat p-value lebih kecil dari 5% sehingga tolak $H_0$: sisaan tidak menyebar normal. Ini sesuai dengan penyimpangan di ujung plot Q-Q. (Peringatan ties pada KS muncul karena data kelembapan berupa bilangan bulat.)
+
+### Kebebasan Sisaan
+
+$H_0$ : Sisaan saling bebas
+$H_1$ : Sisaan tidak tidak saling bebas
+
+```{r}
+lb1  <- Box.test(sisaan, type = "Ljung")
+lb24 <- Box.test(sisaan, lag = 24, type = "Ljung", fitdf = 3)
+lb1; lb24
+```
+
+Pada lag 1, p-value sebesar 0.057, sedikit di atas 5% sehingga gagal tolak $H_0$. Namun ketika diuji sampai lag 24 (satu siklus harian, dengan derajat bebas disesuaikan fitdf = 3), p-value sebesar 0.0117 lebih kecil dari 5% sehingga tolak $H_0$: masih ada autokorelasi pada sisaan, yang kemungkinan besar bersumber dari pola harian (periode 24) yang belum ditangkap model.
+
+### Kehomogenan Ragam Sisaan
+
+$H_0$ : Ragam sisaan homogen
+$H_1$ : Ragam sisaan tidak homogen
+
+```{r}
+lb_sq <- Box.test(sisaan^2, type = "Ljung")
+lb_sq
+```
+
+*P-value* lebih kecil dari 5% sehingga tolak $H_0$: ragam sisaan tidak homogen (ada indikasi efek ARCH). Ini sesuai dengan plot sisaan terhadap waktu.
+
+### Nilai Tengah Sisaan
+
+$H_0$ : nilai tengah sisaan sama dengan 0
+$H_1$ : nilai tengah sisaan tidak sama dengan 0
+
+```{r}
+tt <- t.test(sisaan, mu = 0, conf.level = 0.95)
+tt
+```
+
+*P-value* lebih besar dari 5% sehingga gagal tolak $H_0$: nilai tengah sisaan sama dengan nol.
+
+### Ringkasan Uji Formal
+
+```{r}
+data.frame(
+  Asumsi = c("Normalitas (KS)", "Normalitas (Shapiro)", "Kebebasan (Ljung-Box lag 1)",
+             "Kebebasan (Ljung-Box lag 24)", "Homogenitas ragam", "Nilai tengah nol"),
+  P_value = signif(c(ks_res$p.value, shapiro.test(sisaan)$p.value, lb1$p.value,
+                     lb24$p.value, lb_sq$p.value, tt$p.value), 3),
+  Keputusan = c("Tidak terpenuhi", "Tidak terpenuhi", "Terpenuhi (batas)",
+                "Tidak terpenuhi", "Tidak terpenuhi", "Terpenuhi")
+)
+```
+
+Hanya asumsi nilai tengah nol yang terpenuhi dengan jelas. Pelanggaran normalitas dan homogenitas ragam umum terjadi pada data kelembapan karena nilainya dibatasi 0-100%, dan pelanggaran kebebasan sampai lag 24 mengindikasikan perlunya mencoba model musiman. Model ARIMA(2,0,1) tetap digunakan karena tujuan praktikum ini adalah penerapan alur ARIMA nonmusiman, dan keterbatasan tersebut dicatat pada kesimpulan.
+
+## Overfitting
+
+Overfitting dilakukan dengan menaikkan orde p atau q dari model terpilih ARIMA(2,0,1), yaitu ARIMA(3,0,1) dan ARIMA(2,0,2), untuk melihat apakah ada model yang lebih baik.
+
+```{r}
+m301 <- Arima(df.train, order = c(3,0,1), method = "ML")
+summary(m301); coeftest(m301)
+```
+
+```{r}
+overfitting <- data.frame(
+  Model = c("ARIMA(2,0,1)", "ARIMA(3,0,1)", "ARIMA(2,0,2)"),
+  AIC = c(AIC(m201), AIC(m301), AIC(m202)),
+  BIC = c(BIC(m201), BIC(m301), BIC(m202))
+)
+overfitting
+```
+
+Kedua model hasil overfitting memiliki AIC dan BIC lebih besar dibandingkan ARIMA(2,0,1), dan parameternya tidak seluruhnya dapat diuji (galat baku NaN). Karena itu model ARIMA(2,0,1) tetap dipilih untuk peramalan.
+
+## Peramalan
+
+Peramalan dilakukan dengan fungsi `forecast()` sepanjang data uji (110 jam ke depan).
+
+```{r}
+ramalan <- forecast::forecast(m201, h = length(test))
+data.ramalan <- ramalan$mean
+plot(ramalan, main = "Hasil Peramalan ARIMA(2,0,1)", xlab = "Waktu", ylab = "Kelembapan (%)")
+```
+
+Ramalan bergerak mendekati nilai tengah (rata-rata) data dan hanya mengikuti pola jangka pendek. Selang kepercayaan melebar lalu stabil. Hal ini wajar karena model ARMA nonmusiman cepat kembali ke rataan dan tidak menangkap pola harian.
+
+```{r}
+perbandingan <- data.frame(Waktu = (ntrain + 1):n, Aktual = df.test,
+                           Forecast = round(as.numeric(data.ramalan), 2))
+head(perbandingan, 10)
+```
+
+```{r}
+akurasi <- accuracy(as.numeric(data.ramalan), test)
+akurasi
+```
+
+Pada data uji, diperoleh RMSE sebesar 17.18, MAE 14.98, dan MAPE 26.35%. Nilai kesalahan yang cukup besar ini terjadi karena ramalan jangka panjang cenderung datar, sementara data aktual masih berayun mengikuti pola harian.
+
+```{r}
+ts.plot(df.ts, col = "black", lty = 1, xlab = "Waktu", ylab = "Kelembapan (%)",
+        main = "Data Aktual dan Hasil Peramalan")
+lines((ntrain + 1):n, as.numeric(data.ramalan), col = "blue", lty = 2, lwd = 2)
+abline(v = ntrain, col = "gray50", lty = 3)
+legend("topleft", legend = c("Data Aktual", "Forecast"),
+       col = c("black", "blue"), lty = c(1, 2), lwd = c(1, 2), bty = "n")
+```
+
+## Kesimpulan
+- Data kelembapan per jam stasioner dalam rataan (uji ADF) dan ragam (Box-Cox memuat $\lambda = 1$, sehingga tidak perlu differencing.
+- Dari ACF, PACF, dan EACF diperoleh enam model tentatif; ARIMA(2,0,1) terpilih karena AIC/BIC terkecil dan seluruh parameternya signifikan. Overfitting tidak menghasilkan model yang lebih baik.
+- Sisaan memiliki nilai tengah nol, tetapi tidak normal, tidak homogen, dan secara kumulatif masih berautokorelasi sampai lag 24.
+- Peramalan 110 jam ke depan cenderung datar di sekitar rataan dengan RMSE 17.18.
